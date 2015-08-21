@@ -1,0 +1,54 @@
+package com.yy.leopard.commons.component.url;
+
+import java.util.List;
+
+import javax.servlet.http.HttpServletRequest;
+
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Controller;
+import org.springframework.web.bind.annotation.RequestMapping;
+
+import com.duowan.leopard.commons.utility.AESUtil;
+import com.duowan.leopard.json.Json;
+import com.duowan.leopard.web.mvc.JsonView;
+import com.duowan.leopard.web.security.annotation.NoReferer;
+
+@Controller
+@RequestMapping(value = UrlCreateController.DIR)
+public class UrlCreateController {
+	public static final String DIR = "/admin/urlhyper";
+	@Autowired
+	UrlTraversalComponent urlTraversalComponent;
+
+	private static final String PUBLISHKEY = "1556272FD0F3D48E1923240296A6F869";
+
+	@RequestMapping
+	@NoReferer
+	public JsonView get(HttpServletRequest request) {
+		String content = getResult(request);
+		return new JsonView(content);
+	}
+
+	public String getResult(HttpServletRequest request) {
+		String domainName = request.getServerName();
+		// String token = request.getParameter("token");
+		// String currToken = urlTraversalComponent.getToken();
+		// if (StringUtils.isNotBlank(token) && token.equals(currToken)) {
+		urlTraversalComponent.setDomainName(domainName);
+		List<UrlTraversal> resultList = urlTraversalComponent.init();
+		String content = AESUtil.encrypt(Json.toJson(resultList), PUBLISHKEY);
+		return content;
+		// }
+		// return "";
+	}
+
+	@RequestMapping
+	@NoReferer
+	public JsonView test(HttpServletRequest request) {
+		String domainName = request.getServerName();
+		urlTraversalComponent.setDomainName(domainName);
+		List<UrlTraversal> resultList = urlTraversalComponent.init();
+		return new JsonView(resultList);
+	}
+
+}

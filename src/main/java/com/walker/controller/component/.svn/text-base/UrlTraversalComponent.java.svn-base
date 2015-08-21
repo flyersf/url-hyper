@@ -1,0 +1,221 @@
+package com.yy.leopard.commons.component.url;
+
+import java.lang.reflect.Field;
+import java.lang.reflect.Method;
+import java.sql.Date;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.HashSet;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Map.Entry;
+import java.util.Set;
+
+import javax.servlet.http.HttpServletRequest;
+import javax.servlet.http.HttpServletResponse;
+
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.core.LocalVariableTableParameterNameDiscoverer;
+import org.springframework.core.ParameterNameDiscoverer;
+import org.springframework.stereotype.Component;
+import org.springframework.ui.Model;
+import org.springframework.web.bind.annotation.RequestMethod;
+import org.springframework.web.method.HandlerMethod;
+import org.springframework.web.servlet.mvc.condition.NameValueExpression;
+import org.springframework.web.servlet.mvc.condition.PatternsRequestCondition;
+import org.springframework.web.servlet.mvc.condition.RequestMethodsRequestCondition;
+import org.springframework.web.servlet.mvc.method.RequestMappingInfo;
+import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerMapping;
+
+import com.duowan.leopard.commons.utility.ListUtil;
+import com.duowan.leopard.web.userinfo.service.LoginHandler;
+
+@Component
+public class UrlTraversalComponent {
+	private static final ParameterNameDiscoverer parameterNameDiscoverer = new LocalVariableTableParameterNameDiscoverer();
+	private static Set<String> ignoreUrls = new HashSet<String>();
+	static {
+		ignoreUrls.add("/404.do");
+		ignoreUrls.add("/pageNotFound.do");
+		ignoreUrls.add("/error.do");
+		ignoreUrls.add("/loging.do");
+		ignoreUrls.add("/udb/udbSdkLogin.do");
+		ignoreUrls.add("/udb/logout.do");
+		ignoreUrls.add("/udb/callback.do");
+		ignoreUrls.add("/udb/getSdkAuthReq4LayerClose.do");
+		ignoreUrls.add("/udb/udbSdkLogout.do");
+		ignoreUrls.add("/leopard/upload.do");
+		ignoreUrls.add("/leopard/delay.do");
+		ignoreUrls.add("/leopard/delayConfig.do");
+		ignoreUrls.add("/leopard/commandList.do");
+		ignoreUrls.add("/leopard/commandExecute.do");
+		ignoreUrls.add("/leopard/status.do");
+		ignoreUrls.add("/mapping/index.do");
+		ignoreUrls.add("/mapping/welcome.do");
+		ignoreUrls.add("/system/log.do");
+		ignoreUrls.add("/monitor/thread.do");
+		ignoreUrls.add("/monitor/connection.do");
+		ignoreUrls.add("/monitor/api.do");
+		ignoreUrls.add("/monitor/performance.do");
+		ignoreUrls.add("/monitor/performanceTime.do");
+		ignoreUrls.add("/monitor/network.do");
+		ignoreUrls.add("/monitor/history/save.do");
+		ignoreUrls.add("/test/error.do");
+		ignoreUrls.add("/test/ws_error.do");
+		ignoreUrls.add("/test/json_error.do");
+		ignoreUrls.add("/admin/urlhyper/get.do");
+		ignoreUrls.add("/admin/urlhyper/test.do");
+	}
+	@Autowired
+	RequestMappingHandlerMapping requestMappingHandlerMapping;
+	@Autowired
+	LoginHandler loginHandler;
+
+	private String domainName;
+
+	// private String token;
+
+	public String getDomainName() {
+		return domainName;
+	}
+
+	public void setDomainName(String domainName) {
+		this.domainName = domainName;
+	}
+
+	// public String getToken() {
+	// return token;
+	// }
+	//
+	// public void setToken(String token) {
+	// this.token = token;
+	// }
+
+	// @PostConstruct
+	public List<UrlTraversal> init() {
+		// 只在测试和开发环境有效
+		// if (!EnvUtil.isDevEnv()) {
+		// return null;
+		// }
+		List<String> excludeUrls = loginHandler.getExcludeUris();// 非登录url
+		List<String> limitUrls = loginHandler.getConnectionLimitIncludeUris();// 并发url
+		excludeUrls = ListUtil.defaultList(excludeUrls);
+		limitUrls = ListUtil.defaultList(limitUrls);
+		List<UrlTraversal> urlTraversalList = generate();
+		for (UrlTraversal urlTraversal : urlTraversalList) {
+			Set<String> accUrls = urlTraversal.getAccessUrls();
+			String needLogin = "yes";
+			String needLimit = "no";
+			Set<String> urlSet = new LinkedHashSet<String>();
+			for (String url : accUrls) {
+				if (excludeUrls.contains(url)) {
+					needLogin = "no";
+				}
+				if (limitUrls.contains(url)) {
+					needLimit = "yes";
+				}
+				urlSet.add(domainName + url);
+			}
+			urlTraversal.setAccessUrls(urlSet);
+			urlTraversal.setNeedLogin(needLogin);
+			urlTraversal.setNeedLimit(needLimit);
+		}
+
+		return urlTraversalList;
+	}
+
+	public List<UrlTraversal> generate() {
+		List<UrlTraversal> urlTraversalList = new ArrayList<UrlTraversal>();
+		Map<RequestMappingInfo, HandlerMethod> map = requestMappingHandlerMapping.getHandlerMethods();
+		for (Entry<RequestMappingInfo, HandlerMethod> entry : map.entrySet()) {
+			RequestMappingInfo requestMappingInfo = entry.getKey();
+			HandlerMethod handlerMethod = entry.getValue();
+			PatternsRequestCondition patternsRequestCondition = requestMappingInfo.getPatternsCondition();
+			Set<String> urls = patternsRequestCondition.getPatterns();
+			boolean isIgnore = false;
+			for (String url : urls) {
+				if (ignoreUrls.contains(url)) {
+					isIgnore = true;
+					break;
+				}
+			}
+			if (isIgnore) {
+				continue;
+			}
+			RequestMethodsRequestCondition requestMethodsRequestCondition = requestMappingInfo.getMethodsCondition();
+			Set<RequestMethod> reqMethods = requestMethodsRequestCondition.getMethods();
+			Set<NameValueExpression<String>> headerExpressions = requestMappingInfo.getHeadersCondition().getExpressions();
+			String className = handlerMethod.getBeanType().getName();
+			Method method = handlerMethod.getMethod();
+			String methodName = method.getName();
+			Class<?>[] paramClasses = handlerMethod.getMethod().getParameterTypes();
+			List<String> params = new ArrayList<String>();
+			String paramNames[] = parameterNameDiscoverer.getParameterNames(method);
+			int index = 0;
+			for (Class c : paramClasses) {
+				boolean ismatch = isIgnoreType(c);
+				if (!ismatch) {
+					List<String> propertys = getModelProperty(c);
+					params.addAll(propertys);
+				} else {
+					String type = c.getSimpleName();
+					params.add(type + ":" + paramNames[index]);
+				}
+				index++;
+			}
+			String returnClazzName = handlerMethod.getMethod().getReturnType().getName();
+
+			UrlTraversal urlTraversal = new UrlTraversal();
+			urlTraversal.setClassName(className);
+			urlTraversal.setMethodName(methodName);
+			urlTraversal.setAccessUrls(urls);
+			urlTraversal.setParams(params);
+			urlTraversal.setHeaders(headerExpressions);
+			urlTraversal.setReqMethods(reqMethods);
+			urlTraversal.setReturnClazzName(returnClazzName);
+			urlTraversalList.add(urlTraversal);
+		}
+		return urlTraversalList;
+	}
+
+	public List<String> getModelProperty(Class clazz) {
+		List<String> propertys = new ArrayList<String>();
+		Field[] fields = clazz.getDeclaredFields();
+		for (Field f : fields) {
+			propertys.add(f.getType().getSimpleName() + ":" + f.getName());
+		}
+		return propertys;
+	}
+
+	public boolean isIgnoreType(Class clazz) {
+		if (clazz.isPrimitive()) {
+			return true;
+		}
+		if (Collection.class.isAssignableFrom(clazz)) {
+			return true;
+		}
+		if (Map.class.isAssignableFrom(clazz)) {
+			return true;
+		}
+		if (HttpServletRequest.class.isAssignableFrom(clazz)) {
+			return true;
+		}
+		if (HttpServletResponse.class.isAssignableFrom(clazz)) {
+			return true;
+		}
+		if (Number.class.isAssignableFrom(clazz)) {
+			return true;
+		}
+		boolean ismatch = false;
+		Object objArr[] = { String.class, Model.class, Date.class };
+		for (Object obj : objArr) {
+			if (clazz.equals(obj)) {
+				ismatch = true;
+				break;
+			}
+		}
+		return ismatch;
+	}
+
+}
